@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard — Matrix LMS</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+<nav class="bg-slate-900 text-white no-print">
+  <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+    <a href="dashboard.html" class="font-bold text-lg tracking-tight">Matrix <span class="text-emerald-400">LMS</span></a>
+    <div class="flex items-center gap-4 text-sm">
+      <span id="whoami" class="text-slate-300"></span>
+      <button id="logoutBtn" class="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700">Log out</button>
+    </div>
+  </div>
+</nav>
+
+<main class="max-w-6xl mx-auto px-6 py-10">
+
+  <!-- STUDENT VIEW -->
+  <section id="studentView" class="hidden space-y-10">
+    <div>
+      <h2 class="text-xl font-bold mb-4">My Courses</h2>
+      <div id="enrolledList" class="grid sm:grid-cols-2 gap-4"></div>
+      <p id="enrolledEmpty" class="text-slate-500 text-sm hidden">You're not enrolled in anything yet — browse courses below.</p>
+    </div>
+    <div>
+      <h2 class="text-xl font-bold mb-4">Browse Courses</h2>
+      <div id="browseList" class="grid sm:grid-cols-2 gap-4"></div>
+    </div>
+    <div>
+      <h2 class="text-xl font-bold mb-4">My Certificates</h2>
+      <div id="certList" class="grid sm:grid-cols-2 gap-4"></div>
+      <p id="certEmpty" class="text-slate-500 text-sm hidden">Finish a course 100% to earn your first certificate.</p>
+    </div>
+  </section>
+
+  <!-- INSTRUCTOR / ADMIN VIEW -->
+  <section id="instructorView" class="hidden space-y-8">
+    <div class="flex items-center justify-between">
+      <h2 class="text-xl font-bold">My Courses</h2>
+      <button id="newCourseBtn" class="px-4 py-2 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold">+ New Course</button>
+    </div>
+    <div id="ownedList" class="grid sm:grid-cols-2 gap-4"></div>
+    <p id="ownedEmpty" class="text-slate-500 text-sm hidden">You haven't created a course yet.</p>
+
+    <div id="adminAllSection" class="hidden">
+      <h2 class="text-xl font-bold mb-4 mt-10">All Courses (admin)</h2>
+      <div id="adminAllList" class="grid sm:grid-cols-2 gap-4"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- New Course Modal -->
+<div id="newCourseModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4 no-print">
+  <div class="bg-white rounded-xl w-full max-w-md p-6 relative">
+    <button data-close-modal class="absolute top-3 right-4 text-slate-400 hover:text-slate-700 text-xl">&times;</button>
+    <h2 class="text-xl font-bold mb-4">Create a course</h2>
+    <form id="newCourseForm" class="space-y-3">
+      <div>
+        <label class="text-sm font-medium block mb-1">Title</label>
+        <input type="text" id="courseTitle" required minlength="3" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm">
+      </div>
+      <div>
+        <label class="text-sm font-medium block mb-1">Description</label>
+        <textarea id="courseDescription" rows="3" class="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"></textarea>
+      </div>
+      <p id="newCourseError" class="text-sm text-red-600 hidden"></p>
+      <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-md py-2 text-sm">Create (as draft)</button>
+      <p class="text-xs text-slate-400">You'll add modules and lessons on the next screen, then publish when ready.</p>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+  import { api, requireAuth, logout, escapeHtml } from './js/api.js';
+
+  const user = requireAuth();
+  document.getElementById('whoami').textContent = `${user.full_name} · ${user.role}`;
+  document.getElementById('logoutBtn').addEventListener('click', () => logout());
+
+  const newCourseModal = document.getElementById('newCourseModal');
+  const openModal = (el) => { el.classList.remove('hidden'); el.classList.add('flex'); };
+  const closeModal = (el) => { el.classList.add('hidden'); el.classList.remove('flex'); };
+  document.querySelectorAll('[data-close-modal]').forEach((b) => b.addEventListener('click', () => closeModal(newCourseModal)));
+  newCourseModal.addEventListener('click', (e) => { if (e.target === newCourseModal) closeModal(newCourseModal); });
+
+  function courseCard({ id, title, description, is_published, instructor_name, percent_complete, total_lessons }, opts = {}) {
+    const progressBar = percent_complete !== undefined ? `
+      <div class="mt-3">
+        <div class="h-1.5 rounded-full bg-slate-200 overflow-hidden"><div class="h-full bg-emerald-500" style="width:${percent_complete}%"></div></div>
+        <div class="text-xs text-slate-500 mt-1">${percent_complete}% complete${total_lessons ? ` · ${total_lessons} lessons` : ''}</div>
+      </div>` : '';
+    const badge = is_published === false ? '<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">Draft</span>' : '';
+    return `
+      <div class="bg-white border border-slate-200 rounded-xl p-5 flex flex-col">
+        <div class="flex items-start justify-between gap-2">
+          <h3 class="font-semibold text-slate-900 line-clamp-2">${escapeHtml(title)}</h3>
+          ${badge}
+        </div>
+        <p class="text-sm text-slate-500 mt-1 line-clamp-2">${escapeHtml(description || 'No description yet.')}</p>
+        ${instructor_name ? `<p class="text-xs text-slate-400 mt-1">by ${escapeHtml(instructor_name)}</p>` : ''}
+        ${progressBar}
+        <div class="mt-4 flex gap-2">${opts.actionsHtml || ''}</div>
+      </div>`;
+  }
+
+  const btn = (label, cls, dataAttrs = '') =>
+    `<button class="px-3 py-1.5 rounded-md text-xs font-semibold ${cls}" ${dataAttrs}>${label}</button>`;
+
+  async function initStudent() {
+    document.getElementById('studentView').classList.remove('hidden');
+
+    const [{ courses: enrolled }, { courses: published }, { certificates }] = await Promise.all([
+      api.myEnrolledCourses(),
+      api.listCourses(),
+      api.myCertificates(),
+    ]);
+
+    const enrolledIds = new Set(enrolled.map((c) => c.id));
+
+    const enrolledList = document.getElementById('enrolledList');
+    enrolledList.innerHTML = enrolled.map((c) => courseCard(c, {
+      actionsHtml: btn('Continue learning', 'bg-emerald-500 hover:bg-emerald-600 text-white', `data-open="${c.id}"`),
+    })).join('');
+    document.getElementById('enrolledEmpty').classList.toggle('hidden', enrolled.length > 0);
+
+    const browseList = document.getElementById('browseList');
+    const toBrowse = published.filter((c) => !enrolledIds.has(c.id));
+    browseList.innerHTML = toBrowse.length
+      ? toBrowse.map((c) => courseCard(c, {
+          actionsHtml: btn('Enroll', 'bg-slate-900 hover:bg-slate-700 text-white', `data-enroll="${c.id}"`),
+        })).join('')
+      : '<p class="text-slate-500 text-sm">You\'re enrolled in everything currently published — nice.</p>';
+
+    const certList = document.getElementById('certList');
+    certList.innerHTML = certificates.map((cert) => `
+      <div class="bg-white border border-slate-200 rounded-xl p-5">
+        <h3 class="font-semibold text-slate-900">${escapeHtml(cert.course_title)}</h3>
+        <p class="text-xs text-slate-400 mt-1">Issued ${new Date(cert.issued_at).toLocaleDateString()} · ${cert.certificate_code}</p>
+        <a href="certificate.html?id=${cert.id}" class="inline-block mt-3 px-3 py-1.5 rounded-md text-xs font-semibold bg-slate-900 hover:bg-slate-700 text-white">View certificate</a>
+      </div>`).join('');
+    document.getElementById('certEmpty').classList.toggle('hidden', certificates.length > 0);
+
+    document.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => {
+      window.location.href = `course-viewer.html?course=${el.dataset.open}`;
+    }));
+    document.querySelectorAll('[data-enroll]').forEach((el) => el.addEventListener('click', async () => {
+      await api.enroll(el.dataset.enroll);
+      window.location.href = `course-viewer.html?course=${el.dataset.enroll}`;
+    }));
+  }
+
+  async function initInstructor() {
+    document.getElementById('instructorView').classList.remove('hidden');
+    document.getElementById('newCourseBtn').addEventListener('click', () => openModal(newCourseModal));
+
+    document.getElementById('newCourseForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errEl = document.getElementById('newCourseError');
+      errEl.classList.add('hidden');
+      try {
+        const { course } = await api.createCourse({
+          title: document.getElementById('courseTitle').value.trim(),
+          description: document.getElementById('courseDescription').value.trim(),
+        });
+        window.location.href = `course-viewer.html?course=${course.id}&manage=1`;
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.remove('hidden');
+      }
+    });
+
+    const { courses } = await api.listCourses();
+    const owned = courses.filter((c) => c.instructor_id === user.id);
+    const ownedList = document.getElementById('ownedList');
+    ownedList.innerHTML = owned.map((c) => courseCard(c, {
+      actionsHtml:
+        btn('Manage', 'bg-slate-900 hover:bg-slate-700 text-white', `data-manage="${c.id}"`) +
+        btn(c.is_published ? 'Unpublish' : 'Publish', 'bg-slate-100 hover:bg-slate-200 text-slate-700', `data-toggle="${c.id}" data-published="${c.is_published}"`),
+    })).join('');
+    document.getElementById('ownedEmpty').classList.toggle('hidden', owned.length > 0);
+
+    document.querySelectorAll('[data-manage]').forEach((el) => el.addEventListener('click', () => {
+      window.location.href = `course-viewer.html?course=${el.dataset.manage}&manage=1`;
+    }));
+    document.querySelectorAll('[data-toggle]').forEach((el) => el.addEventListener('click', async () => {
+      const nowPublished = el.dataset.published !== 'true';
+      await api.updateCourse(el.dataset.toggle, { is_published: nowPublished });
+      window.location.reload();
+    }));
+
+    if (user.role === 'admin') {
+      document.getElementById('adminAllSection').classList.remove('hidden');
+      const adminAllList = document.getElementById('adminAllList');
+      adminAllList.innerHTML = courses.map((c) => courseCard(c, {
+        actionsHtml: btn('Manage', 'bg-slate-900 hover:bg-slate-700 text-white', `data-manage="${c.id}"`),
+      })).join('');
+      adminAllList.querySelectorAll('[data-manage]').forEach((el) => el.addEventListener('click', () => {
+        window.location.href = `course-viewer.html?course=${el.dataset.manage}&manage=1`;
+      }));
+    }
+  }
+
+  (user.role === 'student' ? initStudent() : initInstructor()).catch((err) => {
+    console.error(err);
+    alert('Could not load dashboard: ' + err.message);
+  });
+</script>
+</body>
+</html>
